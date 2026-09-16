@@ -3,6 +3,7 @@ import aiohttp
 import argparse
 import sys
 import json
+import random
 from datetime import datetime, timezone
 from urllib.parse import urljoin
 from rich.console import Console
@@ -11,13 +12,26 @@ from rich.table import Table
 
 console = Console()
 
-async def check_credentials(session, url, username, password, semaphore, success_str=None, failure_str=None, delay=0.0, proxy=None):
+# Built-in pool of modern browser user agents for rotation
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:123.0) Gecko/20100101 Firefox/123.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Edge/122.0.2365.66"
+]
+
+async def check_credentials(session, url, username, password, semaphore, success_str=None, failure_str=None, delay=0.0, rotate_ua=False, proxy=None):
     async with semaphore:
         if delay > 0:
             await asyncio.sleep(delay)
             
         payload = {"username": username, "password": password}
         request_kwargs = {"data": payload, "ssl": False}
+        
+        if rotate_ua:
+            request_kwargs["headers"] = {"User-Agent": random.choice(USER_AGENTS)}
+            
         if proxy:
             request_kwargs["proxy"] = proxy
         
@@ -36,13 +50,17 @@ async def check_credentials(session, url, username, password, semaphore, success
         except Exception as e:
             return (username, password, False, str(e))
 
-async def crawl_endpoint(session, base_url, path, semaphore, delay=0.0, proxy=None):
+async def crawl_endpoint(session, base_url, path, semaphore, delay=0.0, rotate_ua=False, proxy=None):
     async with semaphore:
         if delay > 0:
             await asyncio.sleep(delay)
             
         target_url = urljoin(base_url, path)
         request_kwargs = {"ssl": False}
+        
+        if rotate_ua:
+            request_kwargs["headers"] = {"User-Agent": random.choice(USER_AGENTS)}
+            
         if proxy:
             request_kwargs["proxy"] = proxy
             
@@ -63,6 +81,7 @@ async def main():
     parser.add_argument("-p", "--passwords", default="passwords.txt", help="Path to passwords file")
     parser.add_argument("--success-str", default=None, help="Substring in response body indicating success")
     parser.add_argument("--failure-str", default=None, help="Substring in response body indicating failure")
+    parser.add_argument("--rotate-ua", action="store_true", help="Randomly rotate User-Agent header per request")
     parser.add_argument("--crawl", action="store_true", help="Crawl protected endpoints after successful login")
     parser.add_argument("--paths", default="paths.txt", help="Path to endpoints wordlist file")
     parser.add_argument("-o", "--output", default="results.json", help="Path to output JSON results file")
@@ -78,7 +97,7 @@ async def main():
         sys.exit(1)
 
     total_combinations = len(users) * len(passwords)
-    console.print(f"[bold cyan][*] Starting async audit against {args.url}[/bold cyan] [dim](Concurrency: {args.concurrency}, Delay: {args.delay}s, Total: {total_combinations})[/dim]")
+    console.print(f"[bold cyan][*] Starting async audit against {args.url}[/bold cyan] [dim](Concurrency: {args.concurrency}, Delay: {args.delay}s, Rotate UA: {args.rotate_ua}, Total: {total_combinations})[/dim]")
     
     semaphore = asyncio.Semaphore(args.concurrency)
     connector = aiohttp.TCPConnector(ssl=False)
@@ -88,13 +107,13 @@ async def main():
     crawl_results = []
     
     async with aiohttp.ClientSession(connector=connector, cookie_jar=cookie_jar) as session:
-        # Phase 1: Credential Auditing with Rich Progress Bar
         tasks = [
             check_credentials(
                 session, args.url, user, pwd, semaphore, 
                 success_str=args.success_str, 
                 failure_str=args.failure_str, 
                 delay=args.delay, 
+                rotate_ua=args.rotate_ua,
                 proxy=args.proxy
             )
             for user in users for pwd in passwords
@@ -128,7 +147,6 @@ async def main():
                 })
                 login_successful = True
         
-        # Phase 2: Post-Auth Endpoint Crawling
         if args.crawl and login_successful:
             console.print("[bold yellow][*] Valid credentials acquired. Starting post-auth endpoint crawl...[/bold yellow]")
             try:
@@ -138,7 +156,7 @@ async def main():
                 base_root = args.url.rsplit('/', 1)[0] + '/'
                 
                 crawl_tasks = [
-                    crawl_endpoint(session, base_root, path, semaphore, delay=args.delay, proxy=args.proxy)
+                    crawl_endpoint(session, base_root, path, semaphore, delay=args.delay, rotate_ua=args.rotate_ua, proxy=args.proxy)
                     for path in paths
                 ]
                 c_results = await asyncio.gather(*crawl_tasks)
@@ -154,7 +172,6 @@ async def main():
             except FileNotFoundError:
                 console.print(f"[bold red][!] Paths wordlist file ({args.paths}) not found. Skipping crawl.[/bold red]")
 
-        # Render Summary Tables via Rich
         if successful_findings:
             table = Table(title="[bold green]Successful Credential Findings[/bold green]")
             table.add_column("Username", style="cyan", no_wrap=True)
