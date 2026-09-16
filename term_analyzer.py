@@ -9,7 +9,6 @@ from urllib.parse import urljoin
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 from rich.table import Table
-from rich.panel import Panel
 
 console = Console()
 
@@ -21,13 +20,14 @@ USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Edge/122.0.2365.66"
 ]
 
-async def check_credentials(session, url, username, password, semaphore, success_str=None, failure_str=None, delay=0.0, user_key="username", pass_key="password", rotate_ua=False, verbose=False, proxy=None):
+async def check_credentials(session, url, username, password, semaphore, success_str=None, failure_str=None, delay=0.0, user_key="username", pass_key="password", base_headers=None, rotate_ua=False, verbose=False, proxy=None):
     async with semaphore:
         if delay > 0:
             await asyncio.sleep(delay)
             
         payload = {user_key: username, pass_key: password}
-        headers = {}
+        headers = dict(base_headers) if base_headers else {}
+        
         if rotate_ua:
             headers["User-Agent"] = random.choice(USER_AGENTS)
             
@@ -58,13 +58,14 @@ async def check_credentials(session, url, username, password, semaphore, success
                 console.print(f"[bold red][DEBUG] Exception on {username}:{password} -> {e}[/bold red]")
             return (username, password, False, str(e))
 
-async def crawl_endpoint(session, base_url, path, semaphore, delay=0.0, rotate_ua=False, verbose=False, proxy=None):
+async def crawl_endpoint(session, base_url, path, semaphore, delay=0.0, base_headers=None, rotate_ua=False, verbose=False, proxy=None):
     async with semaphore:
         if delay > 0:
             await asyncio.sleep(delay)
             
         target_url = urljoin(base_url, path)
-        headers = {}
+        headers = dict(base_headers) if base_headers else {}
+        
         if rotate_ua:
             headers["User-Agent"] = random.choice(USER_AGENTS)
             
@@ -98,6 +99,7 @@ async def main():
     parser.add_argument("-p", "--passwords", default="passwords.txt", help="Path to passwords file")
     parser.add_argument("--user-key", default="username", help="JSON key name for username field (default: username)")
     parser.add_argument("--pass-key", default="password", help="JSON key name for password field (default: password)")
+    parser.add_argument("--header", action="append", default=[], help="Custom HTTP header in 'Key: Value' format (can be used multiple times)")
     parser.add_argument("--success-str", default=None, help="Substring in response body indicating success")
     parser.add_argument("--failure-str", default=None, help="Substring in response body indicating failure")
     parser.add_argument("--rotate-ua", action="store_true", help="Randomly rotate User-Agent header per request")
@@ -106,6 +108,13 @@ async def main():
     parser.add_argument("--paths", default="paths.txt", help="Path to endpoints wordlist file")
     parser.add_argument("-o", "--output", default="results.json", help="Path to output JSON results file")
     args = parser.parse_args()
+
+    # Parse custom headers into a dictionary
+    custom_headers = {}
+    for h in args.header:
+        if ":" in h:
+            key, val = h.split(":", 1)
+            custom_headers[key.strip()] = val.strip()
 
     try:
         with open(args.users, "r") as f:
@@ -117,7 +126,7 @@ async def main():
         sys.exit(1)
 
     total_combinations = len(users) * len(passwords)
-    console.print(f"[bold cyan][*] Starting async audit against {args.url}[/bold cyan] [dim](Keys: {args.user_key}/{args.pass_key}, Concurrency: {args.concurrency}, Delay: {args.delay}s, Rotate UA: {args.rotate_ua}, Verbose: {args.verbose}, Total: {total_combinations})[/dim]")
+    console.print(f"[bold cyan][*] Starting async audit against {args.url}[/bold cyan] [dim](Keys: {args.user_key}/{args.pass_key}, Headers: {len(custom_headers)}, Concurrency: {args.concurrency}, Delay: {args.delay}s, Verbose: {args.verbose}, Total: {total_combinations})[/dim]")
     
     semaphore = asyncio.Semaphore(args.concurrency)
     connector = aiohttp.TCPConnector(ssl=False)
@@ -135,6 +144,7 @@ async def main():
                 delay=args.delay, 
                 user_key=args.user_key,
                 pass_key=args.pass_key,
+                base_headers=custom_headers,
                 rotate_ua=args.rotate_ua,
                 verbose=args.verbose,
                 proxy=args.proxy
@@ -179,7 +189,7 @@ async def main():
                 base_root = args.url.rsplit('/', 1)[0] + '/'
                 
                 crawl_tasks = [
-                    crawl_endpoint(session, base_root, path, semaphore, delay=args.delay, rotate_ua=args.rotate_ua, verbose=args.verbose, proxy=args.proxy)
+                    crawl_endpoint(session, base_root, path, semaphore, delay=args.delay, base_headers=custom_headers, rotate_ua=args.rotate_ua, verbose=args.verbose, proxy=args.proxy)
                     for path in paths
                 ]
                 c_results = await asyncio.gather(*crawl_tasks)
