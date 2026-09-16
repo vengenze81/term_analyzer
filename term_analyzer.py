@@ -3,28 +3,30 @@ import aiohttp
 import argparse
 import sys
 
-async def check_credentials(session, url, username, password, proxy=None):
-    payload = {"username": username, "password": password}
-    request_kwargs = {
-        "data": payload,
-        "ssl": False
-    }
-    if proxy:
-        request_kwargs["proxy"] = proxy
-    
-    try:
-        async with session.post(url, **request_kwargs) as response:
-            text = await response.text()
-            if response.status == 200:
-                return (username, password, True, text)
-            return (username, password, False, text)
-    except Exception as e:
-        return (username, password, False, str(e))
+async def check_credentials(session, url, username, password, semaphore, proxy=None):
+    async with semaphore:
+        payload = {"username": username, "password": password}
+        request_kwargs = {
+            "data": payload,
+            "ssl": False
+        }
+        if proxy:
+            request_kwargs["proxy"] = proxy
+        
+        try:
+            async with session.post(url, **request_kwargs) as response:
+                text = await response.text()
+                if response.status == 200:
+                    return (username, password, True, text)
+                return (username, password, False, text)
+        except Exception as e:
+            return (username, password, False, str(e))
 
 async def main():
     parser = argparse.ArgumentParser(description="Async Terminal Analyzer / Login Auditor")
     parser.add_argument("--url", default="http://127.0.0.1:8080/login", help="Target URL")
     parser.add_argument("--proxy", default=None, help="HTTP Proxy (e.g., http://127.0.0.1:8080)")
+    parser.add_argument("-c", "--concurrency", type=int, default=10, help="Max concurrent requests (default: 10)")
     parser.add_argument("-u", "--users", default="usernames.txt", help="Path to usernames file")
     parser.add_argument("-p", "--passwords", default="passwords.txt", help="Path to passwords file")
     args = parser.parse_args()
@@ -38,19 +40,25 @@ async def main():
         print(f"[!] Wordlist file missing: {e}")
         sys.exit(1)
 
-    print(f"[*] Starting async scan against {args.url} (Proxy: {args.proxy})")
+    print(f"[*] Starting async scan against {args.url} (Concurrency: {args.concurrency}, Proxy: {args.proxy})")
     
+    semaphore = asyncio.Semaphore(args.concurrency)
     connector = aiohttp.TCPConnector(ssl=False)
+    
     async with aiohttp.ClientSession(connector=connector) as session:
         tasks = [
-            check_credentials(session, args.url, user, pwd, proxy=args.proxy)
+            check_credentials(session, args.url, user, pwd, semaphore, proxy=args.proxy)
             for user in users for pwd in passwords
         ]
         results = await asyncio.gather(*tasks)
         
+        success_count = 0
         for user, pwd, success, resp in results:
             if success:
                 print(f"[+] SUCCESS: {user}:{pwd}")
+                success_count += 1
+                
+        print(f"[*] Scan completed. Found {success_count} valid credential set(s).")
 
 if __name__ == "__main__":
     asyncio.run(main())
