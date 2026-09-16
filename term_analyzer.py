@@ -6,8 +6,11 @@ import json
 from datetime import datetime, timezone
 from urllib.parse import urljoin
 
-async def check_credentials(session, url, username, password, semaphore, success_str=None, proxy=None):
+async def check_credentials(session, url, username, password, semaphore, success_str=None, failure_str=None, delay=0.0, proxy=None):
     async with semaphore:
+        if delay > 0:
+            await asyncio.sleep(delay)
+            
         payload = {"username": username, "password": password}
         request_kwargs = {"data": payload, "ssl": False}
         if proxy:
@@ -17,9 +20,11 @@ async def check_credentials(session, url, username, password, semaphore, success
             async with session.post(url, **request_kwargs) as response:
                 text = await response.text()
                 
-                # Determine success based on custom string or status code fallback
-                if success_str:
-                    is_success = success_str in text
+                # Evaluation logic: Failure string takes precedence, then success string, then status code
+                if failure_str and failure_str in text:
+                    is_success = False
+                elif success_str:
+                    is_success = (success_str in text)
                 else:
                     is_success = (response.status == 200)
                     
@@ -29,8 +34,11 @@ async def check_credentials(session, url, username, password, semaphore, success
         except Exception as e:
             return (username, password, False, str(e))
 
-async def crawl_endpoint(session, base_url, path, semaphore, proxy=None):
+async def crawl_endpoint(session, base_url, path, semaphore, delay=0.0, proxy=None):
     async with semaphore:
+        if delay > 0:
+            await asyncio.sleep(delay)
+            
         target_url = urljoin(base_url, path)
         request_kwargs = {"ssl": False}
         if proxy:
@@ -48,9 +56,11 @@ async def main():
     parser.add_argument("--url", default="http://127.0.0.1:8080/login", help="Target Login URL")
     parser.add_argument("--proxy", default=None, help="HTTP Proxy (e.g., http://127.0.0.1:8080)")
     parser.add_argument("-c", "--concurrency", type=int, default=10, help="Max concurrent requests")
+    parser.add_argument("-d", "--delay", type=float, default=0.0, help="Delay in seconds between requests")
     parser.add_argument("-u", "--users", default="usernames.txt", help="Path to usernames file")
     parser.add_argument("-p", "--passwords", default="passwords.txt", help="Path to passwords file")
     parser.add_argument("--success-str", default=None, help="Substring in response body indicating success")
+    parser.add_argument("--failure-str", default=None, help="Substring in response body indicating failure")
     parser.add_argument("--crawl", action="store_true", help="Crawl protected endpoints after successful login")
     parser.add_argument("--paths", default="paths.txt", help="Path to endpoints wordlist file")
     parser.add_argument("-o", "--output", default="results.json", help="Path to output JSON results file")
@@ -65,7 +75,7 @@ async def main():
         print(f"[!] Wordlist file missing: {e}")
         sys.exit(1)
 
-    print(f"[*] Starting async audit against {args.url} (Concurrency: {args.concurrency})")
+    print(f"[*] Starting async audit against {args.url} (Concurrency: {args.concurrency}, Delay: {args.delay}s)")
     
     semaphore = asyncio.Semaphore(args.concurrency)
     connector = aiohttp.TCPConnector(ssl=False)
@@ -75,9 +85,15 @@ async def main():
     crawl_results = []
     
     async with aiohttp.ClientSession(connector=connector, cookie_jar=cookie_jar) as session:
-        # Phase 1: Credential Auditing with optional pattern matching
+        # Phase 1: Credential Auditing with pattern matching and delay
         tasks = [
-            check_credentials(session, args.url, user, pwd, semaphore, success_str=args.success_str, proxy=args.proxy)
+            check_credentials(
+                session, args.url, user, pwd, semaphore, 
+                success_str=args.success_str, 
+                failure_str=args.failure_str, 
+                delay=args.delay, 
+                proxy=args.proxy
+            )
             for user in users for pwd in passwords
         ]
         results = await asyncio.gather(*tasks)
@@ -103,7 +119,7 @@ async def main():
                 base_root = args.url.rsplit('/', 1)[0] + '/'
                 
                 crawl_tasks = [
-                    crawl_endpoint(session, base_root, path, semaphore, proxy=args.proxy)
+                    crawl_endpoint(session, base_root, path, semaphore, delay=args.delay, proxy=args.proxy)
                     for path in paths
                 ]
                 c_results = await asyncio.gather(*crawl_tasks)
