@@ -33,6 +33,252 @@ def extract_secrets(text, patterns):
             pass
     return extracted
 
+def generate_html_report(data, output_path):
+    mode = data.get("mode", "audit")
+    target = data.get("target", data.get("fuzz_url", "Unknown"))
+    timestamp = data.get("timestamp", datetime.now(timezone.utc).isoformat())
+    
+    html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Term Analyzer Security Report</title>
+    <style>
+        :root {{
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-color: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent-color: #38bdf8;
+            --border-color: #334155;
+            --success-color: #22c55e;
+            --warning-color: #eab308;
+            --danger-color: #ef4444;
+        }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 2rem;
+        }}
+        .container {{
+            max-width: 1200px;
+            margin: 0 auto;
+        }}
+        header {{
+            background: var(--card-bg);
+            padding: 2rem;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }}
+        h1 {{
+            margin: 0 0 0.5rem 0;
+            color: var(--accent-color);
+            font-size: 1.8rem;
+        }}
+        .metadata {{
+            display: flex;
+            gap: 2rem;
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            margin-top: 1rem;
+        }}
+        .card {{
+            background: var(--card-bg);
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }}
+        h2 {{
+            margin-top: 0;
+            font-size: 1.3rem;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.75rem;
+        }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+            text-align: left;
+        }}
+        th, td {{
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 0.9rem;
+            vertical-align: top;
+        }}
+        th {{
+            background-color: rgba(56, 189, 248, 0.1);
+            color: var(--accent-color);
+            font-weight: 600;
+        }}
+        tr:hover {{
+            background-color: rgba(255, 255, 255, 0.02);
+        }}
+        .badge {{
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 0.8rem;
+            display: inline-block;
+        }}
+        .badge-200 {{ background-color: rgba(34, 197, 94, 0.2); color: var(--success-color); }}
+        .badge-429 {{ background-color: rgba(234, 179, 8, 0.2); color: var(--warning-color); }}
+        .badge-error {{ background-color: rgba(239, 68, 68, 0.2); color: var(--danger-color); }}
+        pre {{
+            margin: 0;
+            background: #090d16;
+            padding: 0.5rem;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 0.85rem;
+            max-height: 120px;
+            overflow-y: auto;
+            color: var(--text-muted);
+            white-space: pre-wrap;
+            word-break: break-all;
+        }}
+        .secrets {{
+            color: var(--warning-color);
+            font-family: monospace;
+            font-size: 0.85rem;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Term Analyzer Security Report</h1>
+            <div class="metadata">
+                <div><strong>Mode:</strong> {mode.upper()}</div>
+                <div><strong>Target:</strong> {target}</div>
+                <div><strong>Generated:</strong> {timestamp}</div>
+            </div>
+        </header>
+"""
+
+    if mode == "intruder":
+        results = data.get("results", [])
+        html_content += f"""
+        <div class="card">
+            <h2>Burp Intruder Results ({len(results)} Payloads Tested)</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Payload</th>
+                        <th>Status</th>
+                        <th>Length</th>
+                        <th>Response Snippet</th>
+                        <th>Extracted Secrets</th>
+                    </tr>
+                </thead>
+                <tbody>
+        """
+        for r in results:
+            status = r["status_code"]
+            badge_class = "badge-200" if status == 200 else ("badge-429" if status == 429 else "badge-error")
+            sec_display = json.dumps(r["extracted_secrets"], indent=2) if r["extracted_secrets"] else "None"
+            html_content += f"""
+                    <tr>
+                        <td><code>{r['payload']}</code></td>
+                        <td><span class="badge {badge_class}">{status}</span></td>
+                        <td>{r['response_length']}</td>
+                        <td><pre>{r['response_snippet']}</pre></td>
+                        <td><span class="secrets">{sec_display}</span></td>
+                    </tr>
+            """
+        html_content += """
+                </tbody>
+            </table>
+        </div>
+        """
+    else:
+        logins = data.get("successful_logins", [])
+        crawls = data.get("crawl_results", [])
+        
+        html_content += f"""
+        <div class="card">
+            <h2>Successful Credential Findings ({len(logins)})</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>Password</th>
+                        <th>Response Snippet</th>
+                        <th>Extracted Secrets</th>
+                    </tr>
+                </thead>
+                <tbody>
+        """
+        for l in logins:
+            sec_display = json.dumps(l["extracted_secrets"], indent=2) if l["extracted_secrets"] else "None"
+            html_content += f"""
+                    <tr>
+                        <td><strong>{l['username']}</strong></td>
+                        <td><code>{l['password']}</code></td>
+                        <td><pre>{l['response_snippet']}</pre></td>
+                        <td><span class="secrets">{sec_display}</span></td>
+                    </tr>
+            """
+        html_content += """
+                </tbody>
+            </table>
+        </div>
+        """
+
+        if crawls:
+            html_content += f"""
+        <div class="card">
+            <h2>Post-Auth Crawler Results ({len(crawls)})</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Path</th>
+                        <th>Status Code</th>
+                        <th>Response Snippet</th>
+                        <th>Extracted Secrets</th>
+                    </tr>
+                </thead>
+                <tbody>
+            """
+            for c in crawls:
+                status = c["status_code"]
+                badge_class = "badge-200" if status == 200 else "badge-error"
+                sec_display = json.dumps(c["extracted_secrets"], indent=2) if c["extracted_secrets"] else "None"
+                html_content += f"""
+                    <tr>
+                        <td><code>{c['path']}</code></td>
+                        <td><span class="badge {badge_class}">{status}</span></td>
+                        <td><pre>{c['response_snippet']}</pre></td>
+                        <td><span class="secrets">{sec_display}</span></td>
+                    </tr>
+                """
+            html_content += """
+                </tbody>
+            </table>
+        </div>
+            """
+
+    html_content += """
+    </div>
+</body>
+</html>
+    """
+    
+    try:
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(html_content)
+        console.print(f"[bold green][*] HTML Executive Report successfully saved to {output_path}[/bold green]")
+    except Exception as e:
+        console.print(f"[bold red][!] Failed to save HTML report: {e}[/bold red]")
+
+
 async def check_credentials(session, url, username, password, semaphore, success_str=None, failure_str=None, delay=0.0, user_key="username", pass_key="password", base_headers=None, rotate_ua=False, smart_pause=False, lockout_str=None, pause_duration=15.0, pause_lock=None, extract_patterns=None, verbose=False, proxy=None):
     async with semaphore:
         if delay > 0:
@@ -47,9 +293,6 @@ async def check_credentials(session, url, username, password, semaphore, success
         request_kwargs = {"data": payload, "headers": headers, "ssl": False}
         if proxy:
             request_kwargs["proxy"] = proxy
-        
-        if verbose:
-            console.print(f"[dim][DEBUG] POST {url} | Payload: {payload} | Headers: {headers}[/dim]")
 
         try:
             async with session.post(url, **request_kwargs) as response:
@@ -60,9 +303,6 @@ async def check_credentials(session, url, username, password, semaphore, success
                     async with pause_lock:
                         console.print(f"\n[bold yellow][!] Rate-limit or lockout detected (Status: {response.status}). Pausing execution for {pause_duration}s cooling period...[/bold yellow]")
                         await asyncio.sleep(pause_duration)
-                
-                if verbose:
-                    console.print(f"[dim][DEBUG] Response Status: {response.status} | Body Snippet: {text[:150]}...[/dim]")
 
                 if failure_str and failure_str in text:
                     is_success = False
@@ -74,8 +314,6 @@ async def check_credentials(session, url, username, password, semaphore, success
                 secrets = extract_secrets(text, extract_patterns) if (is_success and extract_patterns) else {}
                 return (username, password, is_success, text, secrets)
         except Exception as e:
-            if verbose:
-                console.print(f"[bold red][DEBUG] Exception on {username}:{password} -> {e}[/bold red]")
             return (username, password, False, str(e), {})
 
 async def crawl_endpoint(session, base_url, path, semaphore, delay=0.0, base_headers=None, rotate_ua=False, extract_patterns=None, verbose=False, proxy=None):
@@ -92,22 +330,13 @@ async def crawl_endpoint(session, base_url, path, semaphore, delay=0.0, base_hea
         request_kwargs = {"headers": headers, "ssl": False}
         if proxy:
             request_kwargs["proxy"] = proxy
-            
-        if verbose:
-            console.print(f"[dim][DEBUG] GET {target_url} | Headers: {headers}[/dim]")
 
         try:
             async with session.get(target_url, **request_kwargs) as response:
                 text = await response.text()
-                
-                if verbose:
-                    console.print(f"[dim][DEBUG] Crawl Status: {response.status} for {path}[/dim]")
-
                 secrets = extract_secrets(text, extract_patterns) if extract_patterns else {}
                 return (path, response.status, text, secrets)
         except Exception as e:
-            if verbose:
-                console.print(f"[bold red][DEBUG] Crawl Exception on {path} -> {e}[/bold red]")
             return (path, 0, str(e), {})
 
 async def fuzz_request(session, method, url_template, body_template, payload, semaphore, delay=0.0, base_headers=None, rotate_ua=False, smart_pause=False, lockout_str=None, pause_duration=15.0, pause_lock=None, extract_patterns=None, verbose=False, proxy=None):
@@ -128,9 +357,6 @@ async def fuzz_request(session, method, url_template, body_template, payload, se
             
         if body is not None:
             request_kwargs["data"] = body
-            
-        if verbose:
-            console.print(f"[dim][DEBUG] {method.upper()} {target_url} | Body: {body} | Headers: {headers}[/dim]")
 
         try:
             async with session.request(method.upper(), target_url, **request_kwargs) as response:
@@ -145,39 +371,37 @@ async def fuzz_request(session, method, url_template, body_template, payload, se
                 secrets = extract_secrets(text, extract_patterns) if extract_patterns else {}
                 return (payload, response.status, len(text), text, secrets)
         except Exception as e:
-            if verbose:
-                console.print(f"[bold red][DEBUG] Fuzz Exception on payload {payload} -> {e}[/bold red]")
             return (payload, 0, 0, str(e), {})
 
 async def main():
     parser = argparse.ArgumentParser(description="Async Terminal Analyzer / Login Auditor & Burp-Style Intruder Fuzzer")
     parser.add_argument("--intruder", action="store_true", help="Enable Burp-style Intruder fuzzing mode")
-    parser.add_argument("--method", default="GET", help="HTTP method for intruder mode (GET, POST, PUT, etc.)")
+    parser.add_argument("--method", default="GET", help="HTTP method for intruder mode")
     parser.add_argument("--fuzz-url", default="http://127.0.0.1:8080/search?q=§§", help="Target URL with §§ insertion point")
     parser.add_argument("--fuzz-body", default=None, help="POST/PUT body template with §§ insertion point")
-    parser.add_argument("--payloads", default="payloads.txt", help="Path to payloads wordlist file for intruder mode")
+    parser.add_argument("--payloads", default="payloads.txt", help="Path to payloads wordlist file")
     
-    # Original Login Audit arguments
     parser.add_argument("--url", default="http://127.0.0.1:8080/login", help="Target Login URL")
-    parser.add_argument("--proxy", default=None, help="HTTP Proxy (e.g., http://127.0.0.1:8080)")
+    parser.add_argument("--proxy", default=None, help="HTTP Proxy")
     parser.add_argument("-c", "--concurrency", type=int, default=10, help="Max concurrent requests")
-    parser.add_argument("-d", "--delay", type=float, default=0.0, help="Delay in seconds between requests")
+    parser.add_argument("-d", "--delay", type=float, default=0.0, help="Delay between requests")
     parser.add_argument("-u", "--users", default="usernames.txt", help="Path to usernames file")
     parser.add_argument("-p", "--passwords", default="passwords.txt", help="Path to passwords file")
-    parser.add_argument("--user-key", default="username", help="JSON key name for username field (default: username)")
-    parser.add_argument("--pass-key", default="password", help="JSON key name for password field (default: password)")
-    parser.add_argument("--header", action="append", default=[], help="Custom HTTP header in 'Key: Value' format (can be used multiple times)")
-    parser.add_argument("--extract-regex", action="append", default=[], help="Regex pattern to harvest secrets/data from responses (can be used multiple times)")
-    parser.add_argument("--success-str", default=None, help="Substring in response body indicating success")
-    parser.add_argument("--failure-str", default=None, help="Substring in response body indicating failure")
-    parser.add_argument("--rotate-ua", action="store_true", help="Randomly rotate User-Agent header per request")
-    parser.add_argument("--smart-pause", action="store_true", help="Automatically pause and back off on HTTP 429 or lockout strings")
-    parser.add_argument("--lockout-str", default=None, help="Substring in response body indicating account lockout or rate-limit")
-    parser.add_argument("--pause-duration", type=float, default=15.0, help="Cooling pause duration in seconds when rate-limited (default: 15.0)")
-    parser.add_argument("--verbose", action="store_true", help="Enable verbose debug output for requests and responses")
-    parser.add_argument("--crawl", action="store_true", help="Crawl protected endpoints after successful login")
-    parser.add_argument("--paths", default="paths.txt", help="Path to endpoints wordlist file")
-    parser.add_argument("-o", "--output", default="results.json", help="Path to output JSON results file")
+    parser.add_argument("--user-key", default="username", help="JSON key name for username")
+    parser.add_argument("--pass-key", default="password", help="JSON key name for password")
+    parser.add_argument("--header", action="append", default=[], help="Custom HTTP header in 'Key: Value' format")
+    parser.add_argument("--extract-regex", action="append", default=[], help="Regex pattern to harvest secrets")
+    parser.add_argument("--success-str", default=None, help="Substring indicating success")
+    parser.add_argument("--failure-str", default=None, help="Substring indicating failure")
+    parser.add_argument("--rotate-ua", action="store_true", help="Randomize User-Agent")
+    parser.add_argument("--smart-pause", action="store_true", help="Auto pause on 429/lockout")
+    parser.add_argument("--lockout-str", default=None, help="Lockout substring")
+    parser.add_argument("--pause-duration", type=float, default=15.0, help="Cooling duration")
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose debug")
+    parser.add_argument("--crawl", action="store_true", help="Crawl endpoints after login")
+    parser.add_argument("--paths", default="paths.txt", help="Paths wordlist")
+    parser.add_argument("-o", "--output", default="results.json", help="Path to JSON output")
+    parser.add_argument("--html-report", default=None, help="Path to output self-contained HTML executive report")
     args = parser.parse_args()
 
     custom_headers = {}
@@ -197,10 +421,10 @@ async def main():
             with open(args.payloads, "r") as f:
                 payloads = [line.strip() for line in f if line.strip()]
         except FileNotFoundError as e:
-            console.print(f"[bold red][!] Payloads wordlist file missing: {e}[/bold red]")
+            console.print(f"[bold red][!] Payloads file missing: {e}[/bold red]")
             sys.exit(1)
 
-        console.print(f"[bold cyan][*] Starting Burp Intruder mode against {args.fuzz_url}[/bold cyan] [dim](Payloads: {len(payloads)}, Concurrency: {args.concurrency})[/dim]")
+        console.print(f"[bold cyan][*] Starting Burp Intruder mode against {args.fuzz_url}[/bold cyan] [dim](Payloads: {len(payloads)})[/dim]")
         
         async with aiohttp.ClientSession(connector=connector, cookie_jar=cookie_jar) as session:
             tasks = [
@@ -215,57 +439,42 @@ async def main():
             ]
 
             fuzz_results = []
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TaskProgressColumn(),
-                console=console
-            ) as progress:
+            with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), BarColumn(), TaskProgressColumn(), console=console) as progress:
                 task_progress = progress.add_task("[cyan]Fuzzing targets...", total=len(tasks))
-                
                 for coro in asyncio.as_completed(tasks):
                     res = await coro
                     fuzz_results.append(res)
                     progress.update(task_progress, advance=1)
                     payload, status, length, _, _ = res
-                    status_color = "green" if status == 200 else ("yellow" if status == 403 or status == 401 else "red")
+                    status_color = "green" if status == 200 else ("yellow" if status in [401, 403, 429] else "red")
                     console.print(f"[{status_color}][{status}] Payload: {payload} (Length: {length})[/{status_color}]")
 
-            if fuzz_results:
-                ftable = Table(title="[bold blue]Burp Intruder Results[/bold blue]")
-                ftable.add_column("Payload", style="cyan", no_wrap=True)
-                ftable.add_column("Status", style="green")
-                ftable.add_column("Length", style="magenta")
-                ftable.add_column("Response Snippet", style="dim")
-                ftable.add_column("Extracted Secrets", style="yellow")
-                
-                results_json_data = []
-                for payload, status, length, resp, secrets in fuzz_results:
-                    sc_color = "green" if status == 200 else "red"
-                    sec_str = json.dumps(secrets) if secrets else "None"
-                    ftable.add_row(payload, f"[{sc_color}]{status}[/{sc_color}]", str(length), resp[:100].strip(), sec_str)
-                    results_json_data.append({
-                        "payload": payload,
-                        "status_code": status,
-                        "response_length": length,
-                        "response_snippet": resp[:200],
-                        "extracted_secrets": secrets
-                    })
-                console.print(ftable)
+            results_json_data = []
+            for payload, status, length, resp, secrets in fuzz_results:
+                results_json_data.append({
+                    "payload": payload,
+                    "status_code": status,
+                    "response_length": length,
+                    "response_snippet": resp[:200],
+                    "extracted_secrets": secrets
+                })
 
-                output_data = {
-                    "mode": "intruder",
-                    "fuzz_url": args.fuzz_url,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "results": results_json_data
-                }
-                try:
-                    with open(args.output, "w") as out_f:
-                        json.dump(output_data, out_f, indent=4)
-                    console.print(f"[bold green][*] Intruder results successfully saved to {args.output}[/bold green]")
-                except Exception as e:
-                    console.print(f"[bold red][!] Failed to save results: {e}[/bold red]")
+            output_data = {
+                "mode": "intruder",
+                "fuzz_url": args.fuzz_url,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "results": results_json_data
+            }
+            
+            try:
+                with open(args.output, "w") as out_f:
+                    json.dump(output_data, out_f, indent=4)
+                console.print(f"[bold green][*] Results successfully saved to {args.output}[/bold green]")
+            except Exception as e:
+                console.print(f"[bold red][!] Failed to save JSON results: {e}[/bold red]")
+
+            if args.html_report:
+                generate_html_report(output_data, args.html_report)
         return
 
     # --- STANDARD LOGIN AUDIT & CRAWLER MODE ---
@@ -279,7 +488,7 @@ async def main():
         sys.exit(1)
 
     total_combinations = len(users) * len(passwords)
-    console.print(f"[bold cyan][*] Starting async audit against {args.url}[/bold cyan] [dim](Keys: {args.user_key}/{args.pass_key}, Regex Patterns: {len(args.extract_regex)}, Concurrency: {args.concurrency}, Total: {total_combinations})[/dim]")
+    console.print(f"[bold cyan][*] Starting async audit against {args.url}[/bold cyan] [dim](Total: {total_combinations})[/dim]")
     
     successful_findings = []
     crawl_results = []
@@ -288,34 +497,18 @@ async def main():
         tasks = [
             check_credentials(
                 session, args.url, user, pwd, semaphore, 
-                success_str=args.success_str, 
-                failure_str=args.failure_str, 
-                delay=args.delay, 
-                user_key=args.user_key,
-                pass_key=args.pass_key,
-                base_headers=custom_headers,
-                rotate_ua=args.rotate_ua,
-                smart_pause=args.smart_pause,
-                lockout_str=args.lockout_str,
-                pause_duration=args.pause_duration,
-                pause_lock=pause_lock,
-                extract_patterns=args.extract_regex,
-                verbose=args.verbose,
-                proxy=args.proxy
+                success_str=args.success_str, failure_str=args.failure_str, 
+                delay=args.delay, user_key=args.user_key, pass_key=args.pass_key,
+                base_headers=custom_headers, rotate_ua=args.rotate_ua, smart_pause=args.smart_pause,
+                lockout_str=args.lockout_str, pause_duration=args.pause_duration, pause_lock=pause_lock,
+                extract_patterns=args.extract_regex, verbose=args.verbose, proxy=args.proxy
             )
             for user in users for pwd in passwords
         ]
         
         results = []
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TaskProgressColumn(),
-            console=console
-        ) as progress:
+        with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), BarColumn(), TaskProgressColumn(), console=console) as progress:
             task_progress = progress.add_task("[cyan]Testing credentials...", total=len(tasks))
-            
             for coro in asyncio.as_completed(tasks):
                 res = await coro
                 results.append(res)
@@ -351,8 +544,6 @@ async def main():
                 c_results = await asyncio.gather(*crawl_tasks)
                 
                 for path, status, resp, secrets in c_results:
-                    status_color = "green" if status == 200 else ("yellow" if status == 403 else "red")
-                    console.print(f"[{status_color}][{status}] Endpoint: {path}[/{status_color}]")
                     crawl_results.append({
                         "path": path,
                         "status_code": status,
@@ -360,30 +551,7 @@ async def main():
                         "extracted_secrets": secrets
                     })
             except FileNotFoundError:
-                console.print(f"[bold red][!] Paths wordlist file ({args.paths}) not found. Skipping crawl.[/bold red]")
-
-        if successful_findings:
-            table = Table(title="[bold green]Successful Credential Findings[/bold green]")
-            table.add_column("Username", style="cyan", no_wrap=True)
-            table.add_column("Password", style="magenta")
-            table.add_column("Response Snippet", style="dim")
-            table.add_column("Extracted Secrets", style="yellow")
-            for f in successful_findings:
-                sec_str = json.dumps(f["extracted_secrets"]) if f["extracted_secrets"] else "None"
-                table.add_row(f["username"], f["password"], f["response_snippet"].strip(), sec_str)
-            console.print(table)
-
-        if crawl_results:
-            ctable = Table(title="[bold blue]Post-Auth Crawler Results[/bold blue]")
-            ctable.add_column("Path", style="cyan")
-            ctable.add_column("Status Code", style="green")
-            ctable.add_column("Response Snippet", style="dim")
-            ctable.add_column("Extracted Secrets", style="yellow")
-            for c in crawl_results:
-                sc_color = "green" if c["status_code"] == 200 else "red"
-                sec_str = json.dumps(c["extracted_secrets"]) if c["extracted_secrets"] else "None"
-                ctable.add_row(c["path"], f"[{sc_color}]{c['status_code']}[/{sc_color}]", c["response_snippet"].strip(), sec_str)
-            console.print(ctable)
+                console.print(f"[bold red][!] Paths wordlist file not found.[/bold red]")
 
         output_data = {
             "mode": "audit",
@@ -398,7 +566,10 @@ async def main():
                 json.dump(output_data, out_f, indent=4)
             console.print(f"[bold green][*] Results successfully saved to {args.output}[/bold green]")
         except Exception as e:
-            console.print(f"[bold red][!] Failed to save results: {e}[/bold red]")
+            console.print(f"[bold red][!] Failed to save JSON results: {e}[/bold red]")
+
+        if args.html_report:
+            generate_html_report(output_data, args.html_report)
 
 if __name__ == "__main__":
     asyncio.run(main())
