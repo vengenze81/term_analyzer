@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, make_response, render_template_string
+from flask import Flask, request, jsonify, make_response, render_template_string, session
 
 app = Flask(__name__)
 
@@ -6,33 +6,14 @@ USERS = {
     "admin": "password123"
 }
 
-LOGIN_TEMPLATE = """
-<!doctype html>
-<html>
-<head><title>Login Test Target</title></head>
-<body>
-    <h2>Login Portal</h2>
-    <form method="POST" action="/login">
-        Username: <input type="text" name="username"><br>
-        Password: <input type="password" name="password"><br>
-        <input type="submit" value="Login">
-    </form>
-</body>
-</html>
-"""
-
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'GET':
-        return render_template_string(LOGIN_TEMPLATE)
+        return "Login Portal"
     
-    if request.is_json:
-        data = request.get_json()
-        username = data.get("username")
-        password = data.get("password")
-    else:
-        username = request.form.get("username")
-        password = request.form.get("password")
+    data = request.get_json() if request.is_json else request.form
+    username = data.get("username")
+    password = data.get("password")
         
     if username in USERS and USERS[username] == password:
         resp = make_response(jsonify({"status": "success", "message": "Authentication successful"}))
@@ -40,6 +21,25 @@ def login():
         return resp, 200
     
     return jsonify({"status": "error", "message": "Invalid credentials"}), 401
+
+@app.route('/dashboard', methods=['GET'])
+def dashboard():
+    cookie = request.cookies.get("session_id")
+    if cookie == "secret_session_token_xyz123":
+        return jsonify({"status": "success", "page": "dashboard", "data": "Welcome to the admin dashboard!"}), 200
+    return jsonify({"status": "unauthorized", "message": "Access denied"}), 403
+
+@app.route('/admin', methods=['GET'])
+def admin():
+    cookie = request.cookies.get("session_id")
+    if cookie == "secret_session_token_xyz123":
+        return jsonify({"status": "success", "page": "admin", "data": "Confidential admin panel data."}), 200
+    return jsonify({"status": "unauthorized", "message": "Access denied"}), 403
+
+@app.route('/settings', methods=['GET'])
+def settings():
+    # Public or unauthenticated check
+    return jsonify({"status": "public", "page": "settings"}), 200
 
 if __name__ == '__main__':
     app.run(host='127.0.0.1', port=8080)

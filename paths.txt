@@ -1,1 +1,4 @@
-/secure
+/dashboard
+/admin
+/settings
+/nonexistent-page
