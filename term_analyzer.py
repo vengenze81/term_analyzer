@@ -6,7 +6,7 @@ import json
 from datetime import datetime, timezone
 from urllib.parse import urljoin
 
-async def check_credentials(session, url, username, password, semaphore, proxy=None):
+async def check_credentials(session, url, username, password, semaphore, success_str=None, proxy=None):
     async with semaphore:
         payload = {"username": username, "password": password}
         request_kwargs = {"data": payload, "ssl": False}
@@ -16,7 +16,14 @@ async def check_credentials(session, url, username, password, semaphore, proxy=N
         try:
             async with session.post(url, **request_kwargs) as response:
                 text = await response.text()
-                if response.status == 200:
+                
+                # Determine success based on custom string or status code fallback
+                if success_str:
+                    is_success = success_str in text
+                else:
+                    is_success = (response.status == 200)
+                    
+                if is_success:
                     return (username, password, True, text)
                 return (username, password, False, text)
         except Exception as e:
@@ -43,6 +50,7 @@ async def main():
     parser.add_argument("-c", "--concurrency", type=int, default=10, help="Max concurrent requests")
     parser.add_argument("-u", "--users", default="usernames.txt", help="Path to usernames file")
     parser.add_argument("-p", "--passwords", default="passwords.txt", help="Path to passwords file")
+    parser.add_argument("--success-str", default=None, help="Substring in response body indicating success")
     parser.add_argument("--crawl", action="store_true", help="Crawl protected endpoints after successful login")
     parser.add_argument("--paths", default="paths.txt", help="Path to endpoints wordlist file")
     parser.add_argument("-o", "--output", default="results.json", help="Path to output JSON results file")
@@ -61,16 +69,15 @@ async def main():
     
     semaphore = asyncio.Semaphore(args.concurrency)
     connector = aiohttp.TCPConnector(ssl=False)
-    # Enable unsafe=True so aiohttp stores cookies from IP addresses like 127.0.0.1
     cookie_jar = aiohttp.CookieJar(unsafe=True)
     
     successful_findings = []
     crawl_results = []
     
     async with aiohttp.ClientSession(connector=connector, cookie_jar=cookie_jar) as session:
-        # Phase 1: Credential Auditing
+        # Phase 1: Credential Auditing with optional pattern matching
         tasks = [
-            check_credentials(session, args.url, user, pwd, semaphore, proxy=args.proxy)
+            check_credentials(session, args.url, user, pwd, semaphore, success_str=args.success_str, proxy=args.proxy)
             for user in users for pwd in passwords
         ]
         results = await asyncio.gather(*tasks)
