@@ -61,11 +61,13 @@ async def main():
     
     semaphore = asyncio.Semaphore(args.concurrency)
     connector = aiohttp.TCPConnector(ssl=False)
+    # Enable unsafe=True so aiohttp stores cookies from IP addresses like 127.0.0.1
+    cookie_jar = aiohttp.CookieJar(unsafe=True)
     
     successful_findings = []
     crawl_results = []
     
-    async with aiohttp.ClientSession(connector=connector) as session:
+    async with aiohttp.ClientSession(connector=connector, cookie_jar=cookie_jar) as session:
         # Phase 1: Credential Auditing
         tasks = [
             check_credentials(session, args.url, user, pwd, semaphore, proxy=args.proxy)
@@ -84,14 +86,13 @@ async def main():
                 })
                 login_successful = True
         
-        # Phase 2: Post-Auth Endpoint Crawling (if enabled and login succeeded)
+        # Phase 2: Post-Auth Endpoint Crawling
         if args.crawl and login_successful:
             print("[*] Valid credentials acquired. Starting post-auth endpoint crawl...")
             try:
                 with open(args.paths, "r") as pf:
                     paths = [line.strip() for line in pf if line.strip()]
                 
-                # Derive base URL root (e.g., http://127.0.0.1:8080/ from http://127.0.0.1:8080/login)
                 base_root = args.url.rsplit('/', 1)[0] + '/'
                 
                 crawl_tasks = [
@@ -110,7 +111,6 @@ async def main():
             except FileNotFoundError:
                 print(f"[!] Paths wordlist file ({args.paths}) not found. Skipping crawl.")
 
-        # Export all findings to JSON
         output_data = {
             "target": args.url,
             "timestamp": datetime.now(timezone.utc).isoformat(),
