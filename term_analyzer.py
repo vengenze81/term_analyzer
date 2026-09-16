@@ -12,7 +12,6 @@ from rich.table import Table
 
 console = Console()
 
-# Built-in pool of modern browser user agents for rotation
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Safari/605.1.15",
@@ -21,12 +20,12 @@ USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Edge/122.0.2365.66"
 ]
 
-async def check_credentials(session, url, username, password, semaphore, success_str=None, failure_str=None, delay=0.0, rotate_ua=False, proxy=None):
+async def check_credentials(session, url, username, password, semaphore, success_str=None, failure_str=None, delay=0.0, user_key="username", pass_key="password", rotate_ua=False, proxy=None):
     async with semaphore:
         if delay > 0:
             await asyncio.sleep(delay)
             
-        payload = {"username": username, "password": password}
+        payload = {user_key: username, pass_key: password}
         request_kwargs = {"data": payload, "ssl": False}
         
         if rotate_ua:
@@ -79,6 +78,8 @@ async def main():
     parser.add_argument("-d", "--delay", type=float, default=0.0, help="Delay in seconds between requests")
     parser.add_argument("-u", "--users", default="usernames.txt", help="Path to usernames file")
     parser.add_argument("-p", "--passwords", default="passwords.txt", help="Path to passwords file")
+    parser.add_argument("--user-key", default="username", help="JSON key name for username field (default: username)")
+    parser.add_argument("--pass-key", default="password", help="JSON key name for password field (default: password)")
     parser.add_argument("--success-str", default=None, help="Substring in response body indicating success")
     parser.add_argument("--failure-str", default=None, help="Substring in response body indicating failure")
     parser.add_argument("--rotate-ua", action="store_true", help="Randomly rotate User-Agent header per request")
@@ -97,7 +98,7 @@ async def main():
         sys.exit(1)
 
     total_combinations = len(users) * len(passwords)
-    console.print(f"[bold cyan][*] Starting async audit against {args.url}[/bold cyan] [dim](Concurrency: {args.concurrency}, Delay: {args.delay}s, Rotate UA: {args.rotate_ua}, Total: {total_combinations})[/dim]")
+    console.print(f"[bold cyan][*] Starting async audit against {args.url}[/bold cyan] [dim](Keys: {args.user_key}/{args.pass_key}, Concurrency: {args.concurrency}, Delay: {args.delay}s, Rotate UA: {args.rotate_ua}, Total: {total_combinations})[/dim]")
     
     semaphore = asyncio.Semaphore(args.concurrency)
     connector = aiohttp.TCPConnector(ssl=False)
@@ -113,6 +114,8 @@ async def main():
                 success_str=args.success_str, 
                 failure_str=args.failure_str, 
                 delay=args.delay, 
+                user_key=args.user_key,
+                pass_key=args.pass_key,
                 rotate_ua=args.rotate_ua,
                 proxy=args.proxy
             )
