@@ -6,7 +6,7 @@ import json
 import random
 import re
 from datetime import datetime, timezone
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 from rich.table import Table
@@ -217,7 +217,8 @@ async def main():
                 with open(args.paths, "r") as pf:
                     paths = [line.strip() for line in pf if line.strip()]
                 
-                base_root = args.url.rsplit('/', 1)[0] + '/'
+                parsed_url = urlparse(args.url)
+                base_root = f"{parsed_url.scheme}://{parsed_url.netloc}/"
                 
                 crawl_tasks = [
                     crawl_endpoint(session, base_root, path, semaphore, delay=args.delay, base_headers=custom_headers, rotate_ua=args.rotate_ua, extract_patterns=args.extract_regex, verbose=args.verbose, proxy=args.proxy)
