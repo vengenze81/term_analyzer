@@ -20,7 +20,7 @@ USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Edge/122.0.2365.66"
 ]
 
-async def check_credentials(session, url, username, password, semaphore, success_str=None, failure_str=None, delay=0.0, user_key="username", pass_key="password", base_headers=None, rotate_ua=False, verbose=False, proxy=None):
+async def check_credentials(session, url, username, password, semaphore, success_str=None, failure_str=None, delay=0.0, user_key="username", pass_key="password", base_headers=None, rotate_ua=False, smart_pause=False, lockout_str=None, pause_duration=15.0, pause_lock=None, verbose=False, proxy=None):
     async with semaphore:
         if delay > 0:
             await asyncio.sleep(delay)
@@ -41,6 +41,13 @@ async def check_credentials(session, url, username, password, semaphore, success
         try:
             async with session.post(url, **request_kwargs) as response:
                 text = await response.text()
+                
+                # Check for Smart Pause / Rate Limiting / WAF block
+                is_rate_limited = (response.status == 429) or (lockout_str and lockout_str in text)
+                if smart_pause and is_rate_limited:
+                    async with pause_lock:
+                        console.print(f"\n[bold yellow][!] Rate-limit or lockout detected (Status: {response.status}). Pausing execution for {pause_duration}s cooling period...[/bold yellow]")
+                        await asyncio.sleep(pause_duration)
                 
                 if verbose:
                     console.print(f"[dim][DEBUG] Response Status: {response.status} | Body Snippet: {text[:150]}...[/dim]")
@@ -103,13 +110,15 @@ async def main():
     parser.add_argument("--success-str", default=None, help="Substring in response body indicating success")
     parser.add_argument("--failure-str", default=None, help="Substring in response body indicating failure")
     parser.add_argument("--rotate-ua", action="store_true", help="Randomly rotate User-Agent header per request")
+    parser.add_argument("--smart-pause", action="store_true", help="Automatically pause and back off on HTTP 429 or lockout strings")
+    parser.add_argument("--lockout-str", default=None, help="Substring in response body indicating account lockout or rate-limit")
+    parser.add_argument("--pause-duration", type=float, default=15.0, help="Cooling pause duration in seconds when rate-limited (default: 15.0)")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose debug output for requests and responses")
     parser.add_argument("--crawl", action="store_true", help="Crawl protected endpoints after successful login")
     parser.add_argument("--paths", default="paths.txt", help="Path to endpoints wordlist file")
     parser.add_argument("-o", "--output", default="results.json", help="Path to output JSON results file")
     args = parser.parse_args()
 
-    # Parse custom headers into a dictionary
     custom_headers = {}
     for h in args.header:
         if ":" in h:
@@ -126,9 +135,10 @@ async def main():
         sys.exit(1)
 
     total_combinations = len(users) * len(passwords)
-    console.print(f"[bold cyan][*] Starting async audit against {args.url}[/bold cyan] [dim](Keys: {args.user_key}/{args.pass_key}, Headers: {len(custom_headers)}, Concurrency: {args.concurrency}, Delay: {args.delay}s, Verbose: {args.verbose}, Total: {total_combinations})[/dim]")
+    console.print(f"[bold cyan][*] Starting async audit against {args.url}[/bold cyan] [dim](Keys: {args.user_key}/{args.pass_key}, Smart Pause: {args.smart_pause}, Concurrency: {args.concurrency}, Delay: {args.delay}s, Total: {total_combinations})[/dim]")
     
     semaphore = asyncio.Semaphore(args.concurrency)
+    pause_lock = asyncio.Lock()
     connector = aiohttp.TCPConnector(ssl=False)
     cookie_jar = aiohttp.CookieJar(unsafe=True)
     
@@ -146,6 +156,10 @@ async def main():
                 pass_key=args.pass_key,
                 base_headers=custom_headers,
                 rotate_ua=args.rotate_ua,
+                smart_pause=args.smart_pause,
+                lockout_str=args.lockout_str,
+                pause_duration=args.pause_duration,
+                pause_lock=pause_lock,
                 verbose=args.verbose,
                 proxy=args.proxy
             )
