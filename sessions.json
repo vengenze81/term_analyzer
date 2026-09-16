@@ -1,0 +1,50 @@
+[
+    {
+        "username": "admin",
+        "cookies": {},
+        "headers": {},
+        "jwt_candidates": []
+    },
+    {
+        "username": "admin",
+        "cookies": {},
+        "headers": {},
+        "jwt_candidates": []
+    },
+    {
+        "username": "admin",
+        "cookies": {},
+        "headers": {},
+        "jwt_candidates": []
+    },
+    {
+        "username": "admin",
+        "cookies": {},
+        "headers": {},
+        "jwt_candidates": []
+    },
+    {
+        "username": "root",
+        "cookies": {},
+        "headers": {},
+        "jwt_candidates": []
+    },
+    {
+        "username": "root",
+        "cookies": {},
+        "headers": {},
+        "jwt_candidates": []
+    },
+    {
+        "username": "root",
+        "cookies": {},
+        "headers": {},
+        "jwt_candidates": []
+    },
+    {
+        "username": "root",
+        "cookies": {},
+        "headers": {},
+        "jwt_candidates": []
+    }
+]

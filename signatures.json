@@ -1,0 +1,47 @@
+[
+    {
+        "id": "CVE-2021-44228",
+        "service": "Log4j",
+        "pattern": "log4j",
+        "severity": "high",
+        "cvss": "10.0",
+        "description": "Apache Log4j2 JNDI features do not protect against attacker controlled LDAP and other JNDI endpoints.",
+        "action": "Upgrade Log4j to version 2.15.0 or higher."
+    },
+    {
+        "id": "CVE-2023-38646",
+        "service": "Metabase",
+        "pattern": "metabase",
+        "severity": "high",
+        "cvss": "9.8",
+        "description": "Metabase remote code execution via pre-built setup database flaws.",
+        "action": "Upgrade Metabase to patched version."
+    },
+    {
+        "id": "CVE-2019-0232",
+        "service": "Apache Tomcat",
+        "pattern": "tomcat",
+        "severity": "medium",
+        "cvss": "7.5",
+        "description": "CGI Servlet Remote Code Execution vulnerability in Apache Tomcat.",
+        "action": "Disable CGI Servlet or upgrade Tomcat."
+    },
+    {
+        "id": "CVE-2022-22965",
+        "service": "Spring Framework",
+        "pattern": "spring",
+        "severity": "high",
+        "cvss": "9.8",
+        "description": "Spring4Shell: RCE via DataBinder in Spring MVC / Spring WebFlux on JDK 9+.",
+        "action": "Upgrade Spring Framework to 5.3.18+ or 5.2.20+."
+    },
+    {
+        "id": "DEFAULT-CONFIG-RISK",
+        "service": "General Web / Service",
+        "pattern": "directory listing",
+        "severity": "medium",
+        "cvss": "5.3",
+        "description": "Open directory listing exposes sensitive file structures and application source code.",
+        "action": "Disable autoindex / directory browsing in web server configuration."
+    }
+]
