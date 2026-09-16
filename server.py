@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, make_response, render_template_string, session
+from flask import Flask, request, jsonify, make_response, render_template_string
 
 app = Flask(__name__)
 
@@ -17,7 +17,8 @@ def login():
         
     if username in USERS and USERS[username] == password:
         resp = make_response(jsonify({"status": "success", "message": "Authentication successful"}))
-        resp.set_cookie("session_id", "secret_session_token_xyz123")
+        # Explicitly set path="/" so aiohttp sends this cookie to all endpoints
+        resp.set_cookie("session_id", "secret_session_token_xyz123", path="/")
         return resp, 200
     
     return jsonify({"status": "error", "message": "Invalid credentials"}), 401
@@ -38,7 +39,6 @@ def admin():
 
 @app.route('/settings', methods=['GET'])
 def settings():
-    # Public or unauthenticated check
     return jsonify({"status": "public", "page": "settings"}), 200
 
 if __name__ == '__main__':
