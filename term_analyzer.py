@@ -2,6 +2,8 @@ import asyncio
 import aiohttp
 import argparse
 import sys
+import json
+from datetime import datetime
 
 async def check_credentials(session, url, username, password, semaphore, proxy=None):
     async with semaphore:
@@ -29,6 +31,7 @@ async def main():
     parser.add_argument("-c", "--concurrency", type=int, default=10, help="Max concurrent requests (default: 10)")
     parser.add_argument("-u", "--users", default="usernames.txt", help="Path to usernames file")
     parser.add_argument("-p", "--passwords", default="passwords.txt", help="Path to passwords file")
+    parser.add_argument("-o", "--output", default="results.json", help="Path to output JSON results file")
     args = parser.parse_args()
 
     try:
@@ -52,13 +55,32 @@ async def main():
         ]
         results = await asyncio.gather(*tasks)
         
-        success_count = 0
+        successful_findings = []
         for user, pwd, success, resp in results:
             if success:
                 print(f"[+] SUCCESS: {user}:{pwd}")
-                success_count += 1
+                successful_findings.append({
+                    "username": user,
+                    "password": pwd,
+                    "response_snippet": resp[:200]  # Store a snippet of the success response
+                })
                 
-        print(f"[*] Scan completed. Found {success_count} valid credential set(s).")
+        # Export results to JSON
+        output_data = {
+            "target": args.url,
+            "timestamp": datetime.utcnow().isoformat(),
+            "total_tested": len(tasks),
+            "successful_logins": successful_findings
+        }
+        
+        try:
+            with open(args.output, "w") as out_f:
+                json.dump(output_data, out_f, indent=4)
+            print(f"[*] Results successfully saved to {args.output}")
+        except Exception as e:
+            print(f"[!] Failed to save results: {e}")
+                
+        print(f"[*] Scan completed. Found {len(successful_findings)} valid credential set(s).")
 
 if __name__ == "__main__":
     asyncio.run(main())
